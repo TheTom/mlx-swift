@@ -246,6 +246,18 @@ int mlx_fast_scaled_dot_product_attention(
     const mlx_array sinks /* may be null */,
     const mlx_stream s);
 
+int mlx_fast_scaled_dot_product_attention_sliding(
+    mlx_array* res,
+    const mlx_array queries,
+    const mlx_array keys,
+    const mlx_array values,
+    float scale,
+    const char* mask_mode,
+    const mlx_array mask_arr /* may be null */,
+    const mlx_array sinks /* may be null */,
+    int window_size,
+    const mlx_stream s);
+
 // TurboQuant
 int mlx_fast_turbo_score(mlx_array* res, const mlx_array q_rot, const mlx_array packed, const mlx_array norms, const mlx_array codebook, int token_count, int repeat_count, int bits, int dim, const mlx_stream s);
 int mlx_fast_turbo_encode(mlx_vector_array* res, const mlx_array input, const mlx_array rotation, const mlx_array boundaries, const mlx_array codebook, int bits, int dim, const mlx_stream s);

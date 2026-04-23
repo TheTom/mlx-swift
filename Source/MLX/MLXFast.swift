@@ -139,6 +139,14 @@ public enum MLXFast {
         case arrays([MLXArray])
         case causal
 
+        /// Causal mask restricted to a diagonal band of `size` keys per query.
+        /// Equivalent to `.causal` with an additional constraint
+        /// `k_idx > q_idx - size`. Used by Gemma-family "sliding_attention"
+        /// layers. Currently routes through the composed fallback path on
+        /// every backend — the causal constraint is synthesized on GPU via
+        /// arange + compare, no user-side mask materialization.
+        case slidingWindow(size: Int)
+
         public var mask: MLXArray? {
             switch self {
             case .none: return nil
@@ -147,6 +155,7 @@ public enum MLXFast {
                 precondition(arrays.count <= 1, "Only a single array is allowed")
                 return arrays.first
             case .causal: return nil
+            case .slidingWindow: return nil
             }
         }
 
@@ -156,6 +165,17 @@ public enum MLXFast {
             case .array: ""
             case .arrays: ""
             case .causal: "causal"
+            case .slidingWindow: "causal"
+            }
+        }
+
+        /// Positive window size for `.slidingWindow`; `-1` otherwise.
+        public var windowSize: Int32 {
+            switch self {
+            case .slidingWindow(let size):
+                precondition(size > 0, "slidingWindow size must be positive")
+                return Int32(size)
+            default: return -1
             }
         }
     }
@@ -207,13 +227,23 @@ public enum MLXFast {
         stream: StreamOrDevice = .default
     ) -> MLXArray {
         var result = mlx_array_new()
-
-        mlx_fast_scaled_dot_product_attention(
-            &result,
-            queries.ctx, keys.ctx, values.ctx, scale,
-            mask.mode, mask.mask?.ctx ?? MLXArray.mlxNone.ctx,
-            (sinks ?? .mlxNone).ctx,
-            stream.ctx)
+        let window = mask.windowSize
+        if window > 0 {
+            mlx_fast_scaled_dot_product_attention_sliding(
+                &result,
+                queries.ctx, keys.ctx, values.ctx, scale,
+                mask.mode, mask.mask?.ctx ?? MLXArray.mlxNone.ctx,
+                (sinks ?? .mlxNone).ctx,
+                Int32(window),
+                stream.ctx)
+        } else {
+            mlx_fast_scaled_dot_product_attention(
+                &result,
+                queries.ctx, keys.ctx, values.ctx, scale,
+                mask.mode, mask.mask?.ctx ?? MLXArray.mlxNone.ctx,
+                (sinks ?? .mlxNone).ctx,
+                stream.ctx)
+        }
         return MLXArray(result)
     }
 
