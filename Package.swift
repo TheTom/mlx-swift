@@ -147,6 +147,13 @@ let cmlx = Target.target(
         "mlx/setup.py",
         "mlx/tests",
 
+        // local CMake build artifacts (gitignored) — not part of the
+        // SPM target but SPM otherwise scans and finds doctest
+        // `main.cpp` files here, triggering "library product should
+        // not contain executable targets" errors under `swift package
+        // edit` against a sibling checkout.
+        "mlx/build",
+
         // special handling for cuda -- we need to keep one file:
         // mlx/mlx/backend/cuda/no_cuda.cpp
 
