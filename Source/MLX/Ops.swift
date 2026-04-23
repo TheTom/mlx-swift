@@ -3220,6 +3220,53 @@ public func which(
     return MLXArray(result)
 }
 
+/// Find the indices of true elements in a 1-D boolean mask.
+///
+/// NumPy / PyTorch have a native `argwhere` / `nonzero` op that returns a
+/// variable-size tensor. MLX does not support variable-size outputs from a
+/// single graph op, so the caller must supply the expected number of true
+/// elements via `count`. Typically this is known from prior validation of the
+/// input shape (e.g., a visual-token count that must match a feature-token
+/// count).
+///
+/// Unlike `mask.asType(.bool).asArray(Bool.self)` + Swift `.enumerated` loops,
+/// this keeps the arithmetic on the GPU: it replaces each false position with
+/// a sentinel larger than any valid index, sorts, and slices the first `count`
+/// entries (which are the valid positions in ascending order).
+///
+/// Example:
+/// ```swift
+/// let mask = MLXArray([false, true, false, true, true])  // 3 true
+/// let indices = argWhere(mask, count: 3)                 // [1, 3, 4]
+/// ```
+///
+/// - Parameters:
+///     - mask: 1-D array. If dtype is not `.bool`, nonzero entries are treated
+///       as true.
+///     - count: expected number of true elements (must satisfy `0 <= count <= mask.size`).
+///     - stream: stream or device to evaluate on
+/// - Returns: `[count]`-shape `Int32` array with the positions of true
+///   elements, in ascending order.
+public func argWhere(
+    _ mask: MLXArray, count: Int, stream: StreamOrDevice = .default
+) -> MLXArray {
+    let n = mask.size
+    precondition(
+        mask.ndim == 1,
+        "argWhere currently supports 1-D masks only; flatten first if needed.")
+    precondition(count >= 0 && count <= n, "count \(count) out of range [0, \(n)]")
+    if count == 0 {
+        return MLXArray.zeros([0], dtype: .int32, stream: stream)
+    }
+    let positions = MLXArray(Int32(0) ..< Int32(n), [n])
+    let sentinel = MLXArray(Int32(n))
+    // Coerce mask to bool so `which` treats nonzero numerics as true.
+    let boolMask = mask.dtype == .bool ? mask : mask.asType(.bool, stream: stream)
+    let masked = which(boolMask, positions, sentinel, stream: stream)
+    let sortedMasked = sorted(masked, stream: stream)
+    return sortedMasked[0 ..< count]
+}
+
 /// Compute the Kronecker product of two arrays `a` and `b`.
 ///
 /// - Parameters:

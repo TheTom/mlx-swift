@@ -113,4 +113,57 @@ class OpsTests: XCTestCase {
         XCTAssertNil(b2)
     }
 
+    // MARK: - argWhere
+
+    func testArgWhereAllTrue() {
+        let mask = MLXArray([true, true, true, true])
+        let indices = argWhere(mask, count: 4)
+        XCTAssertEqual(indices.shape, [4])
+        XCTAssertEqual(indices.dtype, .int32)
+        XCTAssertEqual(indices.asArray(Int32.self), [0, 1, 2, 3])
+    }
+
+    func testArgWhereAllFalse() {
+        let mask = MLXArray([false, false, false, false])
+        let indices = argWhere(mask, count: 0)
+        XCTAssertEqual(indices.shape, [0])
+    }
+
+    func testArgWhereMixed() {
+        let mask = MLXArray([false, true, false, true, true, false])
+        let indices = argWhere(mask, count: 3)
+        XCTAssertEqual(indices.asArray(Int32.self), [1, 3, 4])
+    }
+
+    func testArgWhereMatchesCPULoop() {
+        // Randomized equivalence check vs the Swift-side reference a caller would
+        // otherwise write with `.asArray(Bool.self).enumerated().where`.
+        let raw: [Bool] = (0 ..< 64).map { _ in Bool.random() }
+        let mask = MLXArray(raw)
+
+        var reference: [Int32] = []
+        for (i, v) in raw.enumerated() where v {
+            reference.append(Int32(i))
+        }
+
+        let indices = argWhere(mask, count: reference.count)
+        XCTAssertEqual(indices.asArray(Int32.self), reference)
+    }
+
+    func testArgWhereFromNumericMask() {
+        // Nonzero numeric values are treated as true, matching NumPy.
+        let mask = MLXArray([0, 0, 1, 0, 1, 1, 0] as [Int32])
+        let indices = argWhere(mask, count: 3)
+        XCTAssertEqual(indices.asArray(Int32.self), [2, 4, 5])
+    }
+
+    func testArgWhereUsableAsScatterIndex() {
+        // The common pattern: use the output as a scatter index.
+        let mask = MLXArray([false, true, false, true, false])
+        let indices = argWhere(mask, count: 2)
+        var target = MLXArray.zeros([5], dtype: .float32)
+        target[indices] = MLXArray([7.0, 9.0] as [Float])
+        XCTAssertEqual(target.asArray(Float.self), [0, 7, 0, 9, 0])
+    }
+
 }
