@@ -14,6 +14,24 @@
 
 using namespace metal;
 
+// Bit-arithmetic centroid decode for 3-bit TurboQuant (see turbo_flash.metal)
+struct Turbo3Coeffs {
+    float M0, D1, D2, D3;
+};
+inline Turbo3Coeffs turbo3_init(const device float* codebook) {
+    float m0 = codebook[4], m1 = codebook[5], m2 = codebook[6], m3 = codebook[7];
+    return {m0, m1 - m0, m2 - m0, m3 - m0 - (m1 - m0) - (m2 - m0)};
+}
+inline float turbo3_eval(Turbo3Coeffs c, uint index3) {
+    uint sign_bit = (index3 >> 2) & 1u;
+    uint qs_2bit = index3 & 0x3u;
+    uint mag = sign_bit ? qs_2bit : (3u - qs_2bit);
+    float b0 = float(mag & 1u);
+    float b1 = float((mag >> 1) & 1u);
+    float magv = c.M0 + b0 * c.D1 + b1 * c.D2 + (b0 * b1) * c.D3;
+    return sign_bit ? magv : -magv;
+}
+
 // ============================================================================
 // Scoring kernel: Q×K dot product from packed codebook indices
 // ============================================================================
@@ -42,6 +60,8 @@ template <int Bits, int Dim, int PackedWidth>
 
   float cb[LEVELS];
   for (uint i = 0; i < LEVELS; i++) cb[i] = codebook[i];
+  Turbo3Coeffs t3c;
+  if (Bits == 3) t3c = turbo3_init(codebook);
 
   float acc = 0.0f;
   for (uint d = lane; d < uint(Dim); d += 32) {
@@ -54,7 +74,8 @@ template <int Bits, int Dim, int PackedWidth>
       value |= (packed_ptr[word_idx + 1] << ((uint)Bits - (uint)spill));
     }
     value &= MASK;
-    acc += q_ptr[d] * cb[value];
+    float centroid = (Bits == 3) ? turbo3_eval(t3c, value) : cb[value];
+    acc += q_ptr[d] * centroid;
   }
 
   acc = simd_sum(acc);
@@ -383,6 +404,8 @@ template <int Bits, int Dim, int PackedWidth>
 
   float cb[LEVELS];
   for (uint i = 0; i < LEVELS; i++) cb[i] = codebook[i];
+  Turbo3Coeffs t3c;
+  if (Bits == 3) t3c = turbo3_init(codebook);
 
   float acc = 0.0f;
   for (uint t = 0; t < uint(token_count); t++) {
@@ -401,7 +424,8 @@ template <int Bits, int Dim, int PackedWidth>
       value |= (packed_ptr[word_idx + 1] << ((uint)Bits - (uint)spill_bits));
     }
     value &= MASK;
-    acc += w * norm_val * cb[value];
+    float centroid = (Bits == 3) ? turbo3_eval(t3c, value) : cb[value];
+    acc += w * norm_val * centroid;
   }
 
   output[head_idx * Dim + d] = acc;
@@ -457,22 +481,26 @@ template <int Bits, int Dim, int PackedWidth>
   instantiate_turbo_score(bits, 96) \
   instantiate_turbo_score(bits, 128) \
   instantiate_turbo_score(bits, 256) \
+  instantiate_turbo_score(bits, 512) \
   instantiate_turbo_encode(bits, 64) \
   instantiate_turbo_encode(bits, 80) \
   instantiate_turbo_encode(bits, 96) \
   instantiate_turbo_encode(bits, 128) \
   instantiate_turbo_encode(bits, 256) \
+  instantiate_turbo_encode(bits, 512) \
   instantiate_turbo_value(bits, 64) \
   instantiate_turbo_value(bits, 80) \
   instantiate_turbo_value(bits, 96) \
   instantiate_turbo_value(bits, 128) \
-  instantiate_turbo_value(bits, 256)
+  instantiate_turbo_value(bits, 256) \
+  instantiate_turbo_value(bits, 512)
 
 // WHT encode only for power-of-2 dims
 #define instantiate_wht_for_bits(bits) \
   instantiate_turbo_encode_wht(bits, 64, 6) \
   instantiate_turbo_encode_wht(bits, 128, 7) \
-  instantiate_turbo_encode_wht(bits, 256, 8)
+  instantiate_turbo_encode_wht(bits, 256, 8) \
+  instantiate_turbo_encode_wht(bits, 512, 9)
 
 instantiate_all_for_bits(2)
 instantiate_all_for_bits(3)
@@ -489,3 +517,4 @@ instantiate_turbo_pass2(80)
 instantiate_turbo_pass2(96)
 instantiate_turbo_pass2(128)
 instantiate_turbo_pass2(256)
+instantiate_turbo_pass2(512)

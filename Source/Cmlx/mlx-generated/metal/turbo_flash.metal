@@ -12,6 +12,44 @@
 using namespace metal;
 
 // ============================================================================
+// Bit-arithmetic centroid decode for 3-bit TurboQuant.
+//
+// Replaces codebook array lookup (which spills to thread stack on Metal GPUs)
+// with pure ALU computation. The 8 turbo3 centroids have mathematical structure:
+// 4 magnitudes x 2 signs (symmetric around zero). Magnitude computed via
+// polynomial from 2-bit index using coefficients derived from the codebook.
+//
+// Coefficients are computed once per kernel invocation from the codebook buffer,
+// then used in registers for all dequant operations. This works for any
+// dim-scaled codebook since the structure is always the same.
+//
+// Mathematically exact — produces identical values to the codebook.
+// ============================================================================
+struct Turbo3Coeffs {
+    float M0, D1, D2, D3;
+};
+
+inline Turbo3Coeffs turbo3_init(const device float* codebook) {
+    // Codebook layout: [-mag3, -mag2, -mag1, -mag0, +mag0, +mag1, +mag2, +mag3]
+    // Magnitudes (small to large): codebook[4], codebook[5], codebook[6], codebook[7]
+    float m0 = codebook[4];  // smallest positive
+    float m1 = codebook[5];
+    float m2 = codebook[6];
+    float m3 = codebook[7];  // largest positive
+    return {m0, m1 - m0, m2 - m0, m3 - m0 - (m1 - m0) - (m2 - m0)};
+}
+
+inline float turbo3_eval(Turbo3Coeffs c, uint index3) {
+    uint sign_bit = (index3 >> 2) & 1u;
+    uint qs_2bit = index3 & 0x3u;
+    uint mag = sign_bit ? qs_2bit : (3u - qs_2bit);
+    float b0 = float(mag & 1u);
+    float b1 = float((mag >> 1) & 1u);
+    float magv = c.M0 + b0 * c.D1 + b1 * c.D2 + (b0 * b1) * c.D3;
+    return sign_bit ? magv : -magv;
+}
+
+// ============================================================================
 // TurboFlash Pass 1: Standard (non-causal, L=1 decode)
 // ============================================================================
 template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePackedWidth>
@@ -51,6 +89,9 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
   for (uint i = 0; i < KEY_LEVELS; i++) key_cb[i] = key_codebook[i];
   float val_cb[VAL_LEVELS];
   for (uint i = 0; i < VAL_LEVELS; i++) val_cb[i] = val_codebook[i];
+  Turbo3Coeffs k3c, v3c;
+  if (KeyBits == 3) k3c = turbo3_init(key_codebook);
+  if (ValueBits == 3) v3c = turbo3_init(val_codebook);
 
   float q_vals[DIMS_PER_LANE];
   for (uint i = 0; i < DIMS_PER_LANE; i++) {
@@ -78,7 +119,8 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
       int k_spill = (int)k_shift + (int)KeyBits - 32;
       if (k_spill > 0) k_value |= (k_packed_ptr[k_word_idx + 1] << ((uint)KeyBits - (uint)k_spill));
       k_value &= KEY_MASK;
-      dot_partial += q_vals[i] * key_cb[k_value];
+      float k_centroid = (KeyBits == 3) ? turbo3_eval(k3c, k_value) : key_cb[k_value];
+      dot_partial += q_vals[i] * k_centroid;
     }
     float score = simd_sum(dot_partial) * k_norm;
 
@@ -99,7 +141,8 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
       int v_spill = (int)v_shift + (int)ValueBits - 32;
       if (v_spill > 0) v_value |= (v_packed_ptr[v_word_idx + 1] << ((uint)ValueBits - (uint)v_spill));
       v_value &= VAL_MASK;
-      o[i] = o[i] * exp_diff + exp_score * (val_cb[v_value] * v_norm);
+      float v_centroid = (ValueBits == 3) ? turbo3_eval(v3c, v_value) : val_cb[v_value];
+      o[i] = o[i] * exp_diff + exp_score * (v_centroid * v_norm);
     }
     l = l * exp_diff + exp_score;
     m = new_m;
@@ -179,6 +222,9 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
   for (uint i = 0; i < KEY_LEVELS; i++) key_cb[i] = key_codebook[i];
   float val_cb[VAL_LEVELS];
   for (uint i = 0; i < VAL_LEVELS; i++) val_cb[i] = val_codebook[i];
+  Turbo3Coeffs k3c, v3c;
+  if (KeyBits == 3) k3c = turbo3_init(key_codebook);
+  if (ValueBits == 3) v3c = turbo3_init(val_codebook);
 
   float q_vals[DIMS_PER_LANE];
   for (uint i = 0; i < DIMS_PER_LANE; i++) {
@@ -206,7 +252,8 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
       int k_spill = (int)k_shift + (int)KeyBits - 32;
       if (k_spill > 0) k_value |= (k_packed_ptr[k_word_idx + 1] << ((uint)KeyBits - (uint)k_spill));
       k_value &= KEY_MASK;
-      dot_partial += q_vals[i] * key_cb[k_value];
+      float k_centroid = (KeyBits == 3) ? turbo3_eval(k3c, k_value) : key_cb[k_value];
+      dot_partial += q_vals[i] * k_centroid;
     }
     float score = simd_sum(dot_partial) * k_norm;
 
@@ -227,7 +274,8 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
       int v_spill = (int)v_shift + (int)ValueBits - 32;
       if (v_spill > 0) v_value |= (v_packed_ptr[v_word_idx + 1] << ((uint)ValueBits - (uint)v_spill));
       v_value &= VAL_MASK;
-      o[i] = o[i] * exp_diff + exp_score * (val_cb[v_value] * v_norm);
+      float v_centroid = (ValueBits == 3) ? turbo3_eval(v3c, v_value) : val_cb[v_value];
+      o[i] = o[i] * exp_diff + exp_score * (v_centroid * v_norm);
     }
     l = l * exp_diff + exp_score;
     m = new_m;
@@ -292,6 +340,9 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
   for (uint i = 0; i < VAL_LEVELS; i++) {
     val_cb[i] = val_codebook[i];
   }
+  Turbo3Coeffs k3c, v3c;
+  if (KeyBits == 3) k3c = turbo3_init(key_codebook);
+  if (ValueBits == 3) v3c = turbo3_init(val_codebook);
 
   // Load query values for ALL NR0 rows — each row's dims interleaved in registers
   float q_vals[NR0 * DIMS_PER_LANE];
@@ -341,7 +392,7 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
         k_value |= (k_packed_ptr[k_word_idx + 1] << ((uint)KeyBits - (uint)k_spill));
       }
       k_value &= KEY_MASK;
-      k_decoded[i] = key_cb[k_value];
+      k_decoded[i] = (KeyBits == 3) ? turbo3_eval(k3c, k_value) : key_cb[k_value];
     }
     float k_norm = key_norms[kv_indices[0] * uint(token_count) + t];
 
@@ -362,7 +413,8 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
         v_value |= (v_packed_ptr[v_word_idx + 1] << ((uint)ValueBits - (uint)v_spill));
       }
       v_value &= VAL_MASK;
-      v_decoded[i] = val_cb[v_value] * v_norm;
+      float vc = (ValueBits == 3) ? turbo3_eval(v3c, v_value) : val_cb[v_value];
+      v_decoded[i] = vc * v_norm;
     }
 
     // --- Score + softmax + V accumulate for each of NR0 queries ---
@@ -478,6 +530,9 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
   for (uint i = 0; i < KEY_LEVELS; i++) key_cb[i] = key_codebook[i];
   float val_cb[VAL_LEVELS];
   for (uint i = 0; i < VAL_LEVELS; i++) val_cb[i] = val_codebook[i];
+  Turbo3Coeffs k3c, v3c;
+  if (KeyBits == 3) k3c = turbo3_init(key_codebook);
+  if (ValueBits == 3) v3c = turbo3_init(val_codebook);
 
   // Load query values for all NR0 rows
   float q_vals[NR0 * DIMS_PER_LANE];
@@ -520,7 +575,7 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
         k_value |= (k_packed_ptr[k_word_idx + 1] << ((uint)KeyBits - (uint)k_spill));
       }
       k_value &= KEY_MASK;
-      k_decoded[i] = key_cb[k_value];
+      k_decoded[i] = (KeyBits == 3) ? turbo3_eval(k3c, k_value) : key_cb[k_value];
     }
     float k_norm = key_norms[kv_idx * uint(token_count) + t];
 
@@ -540,7 +595,8 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
         v_value |= (v_packed_ptr[v_word_idx + 1] << ((uint)ValueBits - (uint)v_spill));
       }
       v_value &= VAL_MASK;
-      v_decoded[i] = val_cb[v_value] * v_norm;
+      float vc = (ValueBits == 3) ? turbo3_eval(v3c, v_value) : val_cb[v_value];
+      v_decoded[i] = vc * v_norm;
     }
 
     // Score + softmax + V for each query row (with per-row causal mask)
@@ -602,15 +658,18 @@ template <int KeyBits, int ValueBits, int Dim, int KeyPackedWidth, int ValuePack
     constant int&, constant int&, constant int&, constant int&, \
     constant int&, constant int&, uint3);
 
-// Common asymmetric (KeyBits, ValueBits) combinations
+// All (KeyBits, ValueBits) combinations
 #define instantiate_flash_for_dim(dim) \
-  instantiate_turbo_flash_p1(4, 4, dim) \
-  instantiate_turbo_flash_p1(4, 2, dim) \
-  instantiate_turbo_flash_p1(4, 3, dim) \
+  instantiate_turbo_flash_p1(2, 2, dim) \
+  instantiate_turbo_flash_p1(2, 3, dim) \
+  instantiate_turbo_flash_p1(2, 4, dim) \
   instantiate_turbo_flash_p1(3, 2, dim) \
   instantiate_turbo_flash_p1(3, 3, dim) \
-  instantiate_turbo_flash_p1(8, 4, dim) \
+  instantiate_turbo_flash_p1(4, 2, dim) \
+  instantiate_turbo_flash_p1(4, 3, dim) \
+  instantiate_turbo_flash_p1(4, 4, dim) \
   instantiate_turbo_flash_p1(8, 2, dim) \
+  instantiate_turbo_flash_p1(8, 4, dim) \
   instantiate_turbo_flash_p1(8, 8, dim)
 
 instantiate_flash_for_dim(64)
@@ -639,13 +698,16 @@ instantiate_flash_for_dim(256)
 
 // NR0=2 for all common bit/dim combos
 #define instantiate_nr0_for_dim(dim) \
-  instantiate_turbo_flash_p1_nr0(4, 4, dim, 2) \
-  instantiate_turbo_flash_p1_nr0(4, 2, dim, 2) \
-  instantiate_turbo_flash_p1_nr0(4, 3, dim, 2) \
+  instantiate_turbo_flash_p1_nr0(2, 2, dim, 2) \
+  instantiate_turbo_flash_p1_nr0(2, 3, dim, 2) \
+  instantiate_turbo_flash_p1_nr0(2, 4, dim, 2) \
   instantiate_turbo_flash_p1_nr0(3, 2, dim, 2) \
   instantiate_turbo_flash_p1_nr0(3, 3, dim, 2) \
-  instantiate_turbo_flash_p1_nr0(8, 4, dim, 2) \
+  instantiate_turbo_flash_p1_nr0(4, 2, dim, 2) \
+  instantiate_turbo_flash_p1_nr0(4, 3, dim, 2) \
+  instantiate_turbo_flash_p1_nr0(4, 4, dim, 2) \
   instantiate_turbo_flash_p1_nr0(8, 2, dim, 2) \
+  instantiate_turbo_flash_p1_nr0(8, 4, dim, 2) \
   instantiate_turbo_flash_p1_nr0(8, 8, dim, 2)
 
 instantiate_nr0_for_dim(64)
@@ -653,3 +715,4 @@ instantiate_nr0_for_dim(80)
 instantiate_nr0_for_dim(96)
 instantiate_nr0_for_dim(128)
 instantiate_nr0_for_dim(256)
+instantiate_nr0_for_dim(512)
