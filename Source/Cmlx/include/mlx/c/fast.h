@@ -173,6 +173,12 @@ int mlx_fast_rms_norm_residual(
     const mlx_array weight,
     float eps,
     const mlx_stream s);
+int mlx_fast_fused_gate_activation(
+    mlx_array* res,
+    const mlx_array gate_up,
+    int hidden_dims,
+    int activation_type,
+    const mlx_stream s);
 int mlx_fast_rms_norm_rope(
     mlx_array* res,
     const mlx_array x,

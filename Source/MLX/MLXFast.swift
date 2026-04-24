@@ -291,6 +291,44 @@ public enum MLXFast {
         return MLXArray(result)
     }
 
+    /// Activation variants supported by the fused dense gate+activation kernel.
+    public enum DenseGateActivation: Int32, Sendable {
+        case silu = 0
+        case geluApprox = 1
+        /// Clipped SwiGLU (GPT-OSS). Both halves clamped to [-7, 7];
+        /// `out = gate·sigmoid(1.702·gate)·(up + 1)`.
+        case clippedSwiglu = 2
+    }
+
+    /// Fused dense gate+activation (inline SwiGLU/GeGLU) kernel.
+    ///
+    /// Takes a pre-concatenated `gateUp` tensor of shape `[..., 2 * hiddenDims]`
+    /// and computes `activation(gate) * up` of shape `[..., hiddenDims]` in a
+    /// single Metal dispatch. Replaces the
+    /// Split + activation + Multiply chain (4 dispatches) commonly found in
+    /// gated-MLP forward passes.
+    ///
+    /// - Parameters:
+    ///   - gateUp: input array `[..., 2 * hiddenDims]`
+    ///   - hiddenDims: post-split feature dim
+    ///   - activation: `.silu` (Qwen / GLU) or `.geluApprox` (Gemma GEGLU)
+    ///   - stream: stream or device to evaluate on
+    public static func fusedGateActivation(
+        _ gateUp: MLXArray,
+        hiddenDims: Int,
+        activation: DenseGateActivation,
+        stream: StreamOrDevice = .default
+    ) -> MLXArray {
+        var result = mlx_array_new()
+        mlx_fast_fused_gate_activation(
+            &result,
+            gateUp.ctx,
+            Int32(hiddenDims),
+            activation.rawValue,
+            stream.ctx)
+        return MLXArray(result)
+    }
+
     /// Fused RMSNorm + RoPE operation.
     ///
     /// Combines RMS normalization and rotary position embedding in a single dispatch.
