@@ -766,6 +766,21 @@ extension MLXFast {
             Int32(bits), Int32(dim), stream.ctx)
         return MLXArray(result)
     }
+
+    /// Bulk-dequantize a packed `[B, H, T, PackedWidth]` codec buffer back to
+    /// BF16/FP16 `[B, H, T, dim]` in rotated codec space — one Metal dispatch.
+    ///
+    /// Output dtype must be `.bfloat16` or `.float16`.
+    public static func turboBulkDequantRotated(
+        _ packed: MLXArray, norms: MLXArray, codebook: MLXArray,
+        bits: Int, dim: Int, outputDType: DType,
+        stream: StreamOrDevice = .default
+    ) -> MLXArray {
+        var result = mlx_array_new()
+        mlx_fast_turbo_bulk_dequant_rotated(&result, packed.ctx, norms.ctx, codebook.ctx,
+            Int32(bits), Int32(dim), outputDType.cmlxDtype, stream.ctx)
+        return MLXArray(result)
+    }
 }
 
 // MARK: - GatedDelta Framework Kernel
