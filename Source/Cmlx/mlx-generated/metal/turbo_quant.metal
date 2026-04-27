@@ -240,13 +240,22 @@ template <int Bits, int Dim, int PackedWidth, int LogDim>
 
 // ============================================================================
 // TurboFlash Pass 2: Cross-block online softmax reduction
+//
+// Output dtype: `bfloat`. All current MLX LMs run bf16 weights; writing bf16
+// directly skips one fp32→bf16 conversion step in the consumer's graph.
+// Accumulators stay fp32 (m, l, o[]) and only the final write narrows.
+//
+// History: previously fp32 output forced an `output.asType(queries.dtype)`
+// cast in the Swift caller (PR #104) to defeat upstream MLX graph-compile
+// fusion bug #87/#92 (`!!!!!` decoding on Qwen3.5-9B nKVH=4 and similar
+// shapes). Switching this kernel to bf16 eliminated the bug at the source.
 // ============================================================================
 template <int Dim>
 [[kernel]] void turbo_flash_pass2(
     const device float* o_partials [[buffer(0)]],
     const device float* m_partials [[buffer(1)]],
     const device float* l_partials [[buffer(2)]],
-    device float* output [[buffer(3)]],
+    device bfloat* output [[buffer(3)]],
     constant int& num_blocks [[buffer(4)]],
     uint3 pos [[thread_position_in_grid]]) {
 
@@ -284,7 +293,7 @@ template <int Dim>
   for (uint i = 0; i < DIMS_PER_LANE; i++) {
     uint d = lane + i * 32;
     if (d < uint(Dim)) {
-      output[q_idx * Dim + d] = o[i] * inv_l;
+      output[q_idx * Dim + d] = (bfloat)(o[i] * inv_l);
     }
   }
 }
@@ -298,7 +307,7 @@ template <int Dim>
     const device float* m_partials [[buffer(1)]],
     const device float* l_partials [[buffer(2)]],
     const device float* val_rotation [[buffer(3)]],
-    device float* output [[buffer(4)]],
+    device bfloat* output [[buffer(4)]],
     constant int& num_blocks [[buffer(5)]],
     uint3 pos [[thread_position_in_grid]]) {
 
@@ -350,7 +359,7 @@ template <int Dim>
       for (uint j = 0; j < uint(Dim); j++) {
         acc += shared_out[j] * val_rotation[j * Dim + d];
       }
-      output[q_idx * Dim + d] = acc;
+      output[q_idx * Dim + d] = (bfloat)acc;
     }
   }
 }
@@ -437,11 +446,11 @@ template <int Bits, int Dim, int PackedWidth>
   template [[host_name("turbo_flash_p2_" #dim)]] \
   [[kernel]] void turbo_flash_pass2<dim>( \
     const device float*, const device float*, const device float*, \
-    device float*, constant int&, uint3); \
+    device bfloat*, constant int&, uint3); \
   template [[host_name("turbo_flash_p2_fused_" #dim)]] \
   [[kernel]] void turbo_flash_pass2_fused_rot<dim>( \
     const device float*, const device float*, const device float*, \
-    const device float*, device float*, constant int&, uint3);
+    const device float*, device bfloat*, constant int&, uint3);
 
 #define instantiate_turbo_value(bits, dim) \
   template [[host_name("turbo_value_" #bits "_" #dim)]] \
