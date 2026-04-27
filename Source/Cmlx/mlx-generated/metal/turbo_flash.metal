@@ -618,6 +618,7 @@ instantiate_flash_for_dim(80)
 instantiate_flash_for_dim(96)
 instantiate_flash_for_dim(128)
 instantiate_flash_for_dim(256)
+instantiate_flash_for_dim(512)
 
 // ============================================================================
 // Instantiation macros for TurboFlash Pass 1 NR0 (multi-row)
@@ -653,3 +654,4 @@ instantiate_nr0_for_dim(80)
 instantiate_nr0_for_dim(96)
 instantiate_nr0_for_dim(128)
 instantiate_nr0_for_dim(256)
+instantiate_nr0_for_dim(512)
