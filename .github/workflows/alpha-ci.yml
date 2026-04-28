@@ -1,0 +1,60 @@
+name: alpha CI
+
+# Builds and runs unit tests on the ekryski fork's `alpha` branch and any PR
+# targeting it. The submodules (ekryski/mlx and ekryski/mlx-c) come along
+# via the recursive checkout — `swift test` rebuilds the Cmlx C++/Metal
+# vendored sources as part of the test bundle, so a green run here also
+# covers "submodule pins still resolve and compile" for those forks.
+
+on:
+  push:
+    branches: [alpha]
+  pull_request:
+    branches: [alpha]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/alpha' }}
+
+jobs:
+  build_and_test:
+    if: github.repository_owner == 'ekryski'
+    name: Build and unit-test (M1 macOS)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          uname -a
+
+      - name: Verify submodule SHAs match gitlinks
+        run: |
+          # If submodules drifted relative to the tree, fail loudly here
+          # rather than producing confusing compile errors deeper in the run.
+          git submodule status --recursive
+          git submodule foreach --recursive 'git diff --quiet HEAD || (echo "submodule $name has unstaged changes"; exit 1)'
+
+      - name: Cache SwiftPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-${{ hashFiles('Source/Cmlx/mlx/.git/HEAD', 'Source/Cmlx/mlx-c/.git/HEAD') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Build (release)
+        run: swift build -c release
+
+      - name: Run tests
+        run: swift test -c release
