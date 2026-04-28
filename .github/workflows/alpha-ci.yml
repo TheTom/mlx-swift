@@ -23,7 +23,7 @@ jobs:
   build_and_test:
     if: github.repository_owner == 'ekryski'
     name: Build and unit-test (M1 macOS)
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -49,8 +49,14 @@ jobs:
           path: |
             .build
             ~/Library/Caches/org.swift.swiftpm
-          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-${{ hashFiles('Source/Cmlx/mlx/.git/HEAD', 'Source/Cmlx/mlx-c/.git/HEAD') }}
+          # Submodule pin SHAs aren't directly hashable via hashFiles (gitlinks
+          # are tree entries, not regular files). Key on Package.swift +
+          # .gitmodules + commit SHA instead — Package.swift catches dep changes,
+          # .gitmodules catches submodule add/remove, and the SHA suffix gives
+          # a fresh primary key per commit while restore-keys handles partial hits.
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-${{ github.sha }}
           restore-keys: |
+            spm-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-
             spm-${{ runner.os }}-
 
       - name: Build (release)
