@@ -2,9 +2,21 @@ name: alpha CI
 
 # Builds and runs unit tests on the ekryski fork's `alpha` branch and any PR
 # targeting it. The submodules (ekryski/mlx and ekryski/mlx-c) come along
-# via the recursive checkout — `swift test` rebuilds the Cmlx C++/Metal
-# vendored sources as part of the test bundle, so a green run here also
-# covers "submodule pins still resolve and compile" for those forks.
+# via the recursive checkout.
+#
+# We use xcodebuild rather than `swift test`. SwiftPM cannot compile .metal
+# sources, so a `swift test` run produces a test bundle without a
+# default.metallib and every test that touches the GPU fails at runtime
+# with "Failed to load the default metallib". xcodebuild integrates the
+# MetalToolchain, compiles the .metal files, and bundles the resulting
+# default.metallib into the .xctest bundle. This matches what upstream
+# mlx-swift's pull_request.yml does on its self-hosted runners.
+#
+# Tests run in Debug mode (xcodebuild's default for build-for-testing).
+# That's required for MLX/WiredMemory.swift's `#if DEBUG`-gated test-only
+# API (`WiredMemoryManager.makeForTesting` and the event-emission
+# machinery behind `events()`) to be available — `WiredMemoryTests` would
+# otherwise fail to compile because those symbols are stripped in release.
 
 on:
   push:
@@ -43,24 +55,32 @@ jobs:
           git submodule status --recursive
           git submodule foreach --recursive 'git diff --quiet HEAD || (echo "submodule $name has unstaged changes"; exit 1)'
 
-      - name: Cache SwiftPM build artifacts
+      - name: Cache DerivedData
         uses: actions/cache@v4
         with:
-          path: |
-            .build
-            ~/Library/Caches/org.swift.swiftpm
-          # Submodule pin SHAs aren't directly hashable via hashFiles (gitlinks
-          # are tree entries, not regular files). Key on Package.swift +
-          # .gitmodules + commit SHA instead — Package.swift catches dep changes,
-          # .gitmodules catches submodule add/remove, and the SHA suffix gives
-          # a fresh primary key per commit while restore-keys handles partial hits.
-          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-${{ github.sha }}
+          path: ~/Library/Developer/Xcode/DerivedData
+          # Key on Package.swift + .gitmodules + commit SHA. Submodule pins
+          # are gitlinks (tree entries), not regular files, so hashFiles can't
+          # see them directly — relying on the SHA + restore-keys ladder gives
+          # us partial hits when only Swift sources change.
+          key: dd-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-${{ github.sha }}
           restore-keys: |
-            spm-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-
-            spm-${{ runner.os }}-
+            dd-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-
+            dd-${{ runner.os }}-
 
-      - name: Build (release)
-        run: swift build -c release
+      - name: Build for testing (xcodebuild — compiles .metal + bundles metallib)
+        run: |
+          xcodebuild build-for-testing \
+            -scheme mlx-swift-Package \
+            -destination 'platform=macOS' \
+            -derivedDataPath ~/Library/Developer/Xcode/DerivedData/mlx-swift
 
-      - name: Run tests
-        run: swift test -c release
+      - name: Run CmlxTests
+        run: |
+          xcrun xctest \
+            ~/Library/Developer/Xcode/DerivedData/mlx-swift/Build/Products/Debug/CmlxTests.xctest
+
+      - name: Run MLXTests
+        run: |
+          xcrun xctest \
+            ~/Library/Developer/Xcode/DerivedData/mlx-swift/Build/Products/Debug/MLXTests.xctest
