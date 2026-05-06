@@ -39,6 +39,10 @@ struct StreamContext {
   Stream _stream;
 };
 
+struct MLX_API PrintOptions {
+  int precision{-1};
+};
+
 struct PrintFormatter {
   inline void print(std::ostream& os, bool val);
   inline void print(std::ostream& os, int16_t val);
@@ -54,7 +58,10 @@ struct PrintFormatter {
   inline void print(std::ostream& os, complex64_t val);
 
   bool capitalize_bool{false};
+  PrintOptions format_options;
 };
+
+MLX_API void set_printoptions(PrintOptions options);
 
 MLX_API PrintFormatter& get_global_formatter();
 
@@ -159,6 +166,12 @@ inline int max_mb_per_buffer(int default_value) {
 inline bool metal_fast_synch() {
   static bool metal_fast_synch = get_var("MLX_METAL_FAST_SYNCH", 0);
   return metal_fast_synch;
+}
+
+inline bool metal_retain_bound_buffers() {
+  static bool metal_retain_bound_buffers_ =
+      get_var("MLX_METAL_RETAIN_BOUND_BUFFERS", 1);
+  return metal_retain_bound_buffers_;
 }
 
 inline bool enable_tf32() {

@@ -179,48 +179,6 @@ int mlx_fast_fused_gate_activation(
     int hidden_dims,
     int activation_type,
     const mlx_stream s);
-int mlx_fast_rms_norm_rope(
-    mlx_array* res,
-    const mlx_array x,
-    const mlx_array weight,
-    const mlx_array inv_freqs,
-    float eps,
-    int offset,
-    int n_heads,
-    int seq_len,
-    const mlx_stream s);
-int mlx_fast_rms_norm_qgemv(
-    mlx_array* res,
-    const mlx_array x,
-    const mlx_array norm_weight,
-    const mlx_array w,
-    const mlx_array scales,
-    const mlx_array biases,
-    float eps,
-    int group_size,
-    const mlx_stream s);
-int mlx_fast_batched_qkv_qgemv(
-    mlx_array* res,
-    const mlx_array x,
-    const mlx_array w_q, const mlx_array scales_q, const mlx_array biases_q,
-    const mlx_array w_k, const mlx_array scales_k, const mlx_array biases_k,
-    const mlx_array w_v, const mlx_array scales_v, const mlx_array biases_v,
-    int group_size,
-    const mlx_stream s);
-int mlx_fast_warp_moe_gate_up(
-    mlx_array* res,
-    const mlx_array x,
-    const mlx_array w, const mlx_array scales, const mlx_array biases,
-    const mlx_array indices,
-    int group_size, int hidden_dims, int activation_type,
-    const mlx_stream s);
-int mlx_fast_warp_moe_down(
-    mlx_array* res,
-    const mlx_array activated,
-    const mlx_array w, const mlx_array scales, const mlx_array biases,
-    const mlx_array indices, const mlx_array scores,
-    int group_size, int hidden_dims, int out_dims,
-    const mlx_stream s);
 int mlx_fast_rope(
     mlx_array* res,
     const mlx_array x,
@@ -252,6 +210,15 @@ int mlx_fast_scaled_dot_product_attention(
     const mlx_array sinks /* may be null */,
     const mlx_stream s);
 
+/**
+ * Extended SDPA with an optional sliding-window bound. When
+ * `window_size > 0` and `mask_mode == "causal"`, restricts the causal
+ * attention band so each query attends only to the most recent
+ * `window_size` keys (the Gemma-sliding-attention pattern).
+ *
+ * Pass `window_size < 0` (e.g. -1) to disable the window and behave
+ * exactly like the non-sliding variant.
+ */
 int mlx_fast_scaled_dot_product_attention_sliding(
     mlx_array* res,
     const mlx_array queries,
@@ -263,6 +230,8 @@ int mlx_fast_scaled_dot_product_attention_sliding(
     const mlx_array sinks /* may be null */,
     int window_size,
     const mlx_stream s);
+
+/**@}*/
 
 // TurboQuant
 int mlx_fast_turbo_score(mlx_array* res, const mlx_array q_rot, const mlx_array packed, const mlx_array norms, const mlx_array codebook, int token_count, int repeat_count, int bits, int dim, const mlx_stream s);
@@ -282,7 +251,57 @@ int mlx_fast_gated_delta_step_fused(mlx_vector_array* res, const mlx_array q_raw
 // SSM
 int mlx_fast_ssm_step(mlx_vector_array* res, const mlx_array X, const mlx_array A_log, const mlx_array B, const mlx_array C, const mlx_array D, const mlx_array dt, const mlx_array state, int Dh, int Ds, int H, int G, const mlx_stream s);
 
-/**@}*/
+// Fused RMS norm + RoPE
+int mlx_fast_rms_norm_rope(
+    mlx_array* res,
+    const mlx_array x,
+    const mlx_array weight,
+    const mlx_array inv_freqs,
+    float eps,
+    int offset,
+    int n_heads,
+    int seq_len,
+    const mlx_stream s);
+
+// Fused RMS norm + quantized GEMV
+int mlx_fast_rms_norm_qgemv(
+    mlx_array* res,
+    const mlx_array x,
+    const mlx_array norm_weight,
+    const mlx_array w,
+    const mlx_array scales,
+    const mlx_array biases,
+    float eps,
+    int group_size,
+    const mlx_stream s);
+
+// Batched QKV quantized GEMV
+int mlx_fast_batched_qkv_qgemv(
+    mlx_array* res,
+    const mlx_array x,
+    const mlx_array w_q, const mlx_array scales_q, const mlx_array biases_q,
+    const mlx_array w_k, const mlx_array scales_k, const mlx_array biases_k,
+    const mlx_array w_v, const mlx_array scales_v, const mlx_array biases_v,
+    int group_size,
+    const mlx_stream s);
+
+// Warp-level MoE gate+up projection
+int mlx_fast_warp_moe_gate_up(
+    mlx_array* res,
+    const mlx_array x,
+    const mlx_array w, const mlx_array scales, const mlx_array biases,
+    const mlx_array indices,
+    int group_size, int hidden_dims, int activation_type,
+    const mlx_stream s);
+
+// Warp-level MoE down projection
+int mlx_fast_warp_moe_down(
+    mlx_array* res,
+    const mlx_array activated,
+    const mlx_array w, const mlx_array scales, const mlx_array biases,
+    const mlx_array indices, const mlx_array scores,
+    int group_size, int hidden_dims, int out_dims,
+    const mlx_stream s);
 
 #ifdef __cplusplus
 }
