@@ -1,0 +1,174 @@
+name: Alpha Release
+
+# Manual-trigger release workflow for the ekryski/mlx-swift fork. Computes
+# the next version, runs the xcodebuild + xctest gate (mirrors `alpha-ci.yml`),
+# creates a `release/<tag>` branch (kept open for hotfixes) and an annotated
+# tag, then publishes a GitHub Release with auto-generated notes.
+#
+# Named `alpha-release.yml` (not `release.yml`) so it doesn't clash with
+# upstream ml-explore/mlx-swift's `release.yml` (XCFramework publishing,
+# gated on the upstream repo). This workflow is fork-only via
+# `if: github.repository_owner == 'ekryski'`.
+#
+# Why xcodebuild and not `swift test`: SwiftPM cannot compile `.metal`
+# sources, so a `swift test` run produces a test bundle without a
+# default.metallib and every GPU-touching test fails at runtime with
+# "Failed to load the default metallib". xcodebuild integrates the
+# MetalToolchain, compiles the .metal files, and bundles the resulting
+# default.metallib into the .xctest bundle. Matches what upstream's
+# `pull_request.yml` does on its self-hosted runners.
+#
+# Tests run in Debug mode (xcodebuild's default for build-for-testing) so
+# `WiredMemoryTests`'s `#if DEBUG`-gated test-only API
+# (`WiredMemoryManager.makeForTesting`, the event-emission machinery
+# behind `events()`) is available — those would otherwise fail to
+# compile in release.
+#
+# Usage: GitHub UI → Actions → "Alpha Release" → Run workflow.
+#   bump_type:        major / minor / patch
+#   prerelease_tag:   alpha / beta / rc / none
+#   override_version: optional; bypass auto-bump (e.g. "0.32.0-alpha")
+#   notes_baseline:   optional; ref to compare against for release notes
+#                     (defaults to GitHub's auto-generation from last tag)
+#   tag_prefix:       v (default), auto, or empty
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version bump type"
+        required: true
+        default: "minor"
+        type: choice
+        options: [major, minor, patch]
+      prerelease_tag:
+        description: "Pre-release suffix (none = stable)"
+        required: true
+        default: "alpha"
+        type: choice
+        options: [alpha, beta, rc, none]
+      override_version:
+        description: "Override version (bypasses auto-bump). E.g. 0.32.0-alpha"
+        required: false
+        default: ""
+      notes_baseline:
+        description: "Generate notes since this ref (e.g. 'main'). Empty = since last tag."
+        required: false
+        default: ""
+      tag_prefix:
+        description: "Tag prefix. 'v' by convention; 'auto' inherits from last tag."
+        required: false
+        default: "v"
+        type: choice
+        options: [v, auto, ""]
+
+permissions:
+  contents: write   # tag + release branch + GitHub Release creation
+
+concurrency:
+  group: alpha-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build_and_test:
+    if: github.repository_owner == 'ekryski'
+    name: Build + test (M1 macOS)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Verify submodule SHAs match gitlinks
+        run: |
+          git submodule status --recursive
+          git submodule foreach --recursive 'git diff --quiet HEAD || (echo "submodule $name has unstaged changes"; exit 1)'
+
+      - name: Cache DerivedData
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: dd-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-${{ github.sha }}
+          restore-keys: |
+            dd-${{ runner.os }}-${{ hashFiles('Package.swift', '.gitmodules') }}-
+            dd-${{ runner.os }}-
+
+      - name: Build for testing (xcodebuild — compiles .metal + bundles metallib)
+        run: |
+          xcodebuild build-for-testing \
+            -scheme mlx-swift-Package \
+            -destination 'platform=macOS' \
+            -derivedDataPath ~/Library/Developer/Xcode/DerivedData/mlx-swift
+
+      - name: Run CmlxTests
+        run: |
+          xcrun xctest \
+            ~/Library/Developer/Xcode/DerivedData/mlx-swift/Build/Products/Debug/CmlxTests.xctest
+
+      - name: Run MLXTests
+        run: |
+          xcrun xctest \
+            ~/Library/Developer/Xcode/DerivedData/mlx-swift/Build/Products/Debug/MLXTests.xctest
+
+  release:
+    needs: build_and_test
+    if: github.repository_owner == 'ekryski'
+    name: Tag + GitHub Release
+    runs-on: macos-26
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+      release_branch: ${{ steps.bump.outputs.release_branch }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute version + create branch/tag
+        id: bump
+        env:
+          BUMP_TYPE: ${{ github.event.inputs.bump_type }}
+          PRERELEASE_TAG: ${{ github.event.inputs.prerelease_tag }}
+          OVERRIDE_VERSION: ${{ github.event.inputs.override_version }}
+          TAG_PREFIX: ${{ github.event.inputs.tag_prefix }}
+        run: ./scripts/release.sh
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          RELEASE_BRANCH: ${{ steps.bump.outputs.release_branch }}
+          NOTES_BASELINE: ${{ github.event.inputs.notes_baseline }}
+          PRERELEASE: ${{ github.event.inputs.prerelease_tag != 'none' }}
+        run: |
+          ARGS=(
+            --target "$RELEASE_BRANCH"
+            --title "$TAG"
+            --generate-notes
+          )
+          if [ -n "$NOTES_BASELINE" ]; then
+            ARGS+=(--notes-start-tag "$NOTES_BASELINE")
+          fi
+          if [ "$PRERELEASE" = "true" ]; then
+            ARGS+=(--prerelease)
+          fi
+          gh release create "$TAG" "${ARGS[@]}"
+
+      - name: Summary
+        run: |
+          echo "### Released ${{ steps.bump.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: \`${{ steps.bump.outputs.release_branch }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${{ steps.bump.outputs.commit }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.bump.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
