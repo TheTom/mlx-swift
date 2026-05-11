@@ -825,6 +825,54 @@ extension MLXFast {
             Int32(T), Int32(Dk), Int32(Dv), Int32(Hk), Int32(Hv), stream.ctx)
         return mlx_vector_array_values(result)
     }
+
+    /// GatedDeltaNet forward step with per-step `delta_t` tape capture.
+    /// Companion to `gatedDeltaStep` — same forward computation but also
+    /// writes per-step delta to a tape output buffer. Used by speculative-
+    /// decoder verify forwards on hybrid GDN+Attention models (Qwen 3.5 / 3.6)
+    /// to record innovations for possible partial-accept rollback via
+    /// `stateReplay`.
+    /// Returns (y [B, T, Hv, Dv], state_out [B, Hv, Dv, Dk], delta_log [B, T, Hv, Dv]).
+    public static func gatedDeltaStepRecord(
+        q: MLXArray, k: MLXArray, v: MLXArray,
+        g: MLXArray, beta: MLXArray, state: MLXArray,
+        mask: MLXArray? = nil,
+        T: Int,
+        Dk: Int, Dv: Int, Hk: Int, Hv: Int,
+        stream: StreamOrDevice = .default
+    ) -> [MLXArray] {
+        var result = mlx_vector_array_new()
+        defer { mlx_vector_array_free(result) }
+        mlx_fast_gated_delta_step_record(&result,
+            q.ctx, k.ctx, v.ctx, g.ctx, beta.ctx, state.ctx,
+            mask?.ctx ?? mlx_array_new(),
+            Int32(T), Int32(Dk), Int32(Dv), Int32(Hk), Int32(Hv), stream.ctx)
+        return mlx_vector_array_values(result)
+    }
+
+    /// Tape-replay rollback. Re-folds the accepted prefix `[0, accepted)` of
+    /// an innovation tape (per-step `(delta_t, k_t, g_t)` triples) onto a
+    /// pre-record state snapshot. k_log carries GQA-expanded keys so the
+    /// kernel stride is `Hv * Dk` (not `Hk * Dk`). Adopts upstream dflash-mlx
+    /// correctness patterns from day 1 (masked-timestep fix + branchless
+    /// `metal::select`).
+    /// Returns (state_out [B, Hv, Dv, Dk]).
+    public static func stateReplay(
+        deltaLog: MLXArray, kLog: MLXArray, gLog: MLXArray,
+        state: MLXArray, mask: MLXArray? = nil,
+        T_log: Int, accepted: Int,
+        Dk: Int, Dv: Int, Hk: Int, Hv: Int,
+        stream: StreamOrDevice = .default
+    ) -> [MLXArray] {
+        var result = mlx_vector_array_new()
+        defer { mlx_vector_array_free(result) }
+        mlx_fast_state_replay(&result,
+            deltaLog.ctx, kLog.ctx, gLog.ctx, state.ctx,
+            mask?.ctx ?? mlx_array_new(),
+            Int32(T_log), Int32(accepted),
+            Int32(Dk), Int32(Dv), Int32(Hk), Int32(Hv), stream.ctx)
+        return mlx_vector_array_values(result)
+    }
 }
 
 // MARK: - SSM Framework Kernel
