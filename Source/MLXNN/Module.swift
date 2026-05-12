@@ -290,8 +290,11 @@ open class Module {
                 }
                 return isAllNone ? .none : .array(result)
 
-            default:
-                fatalError("Unexpected leaf \(vk) = \(v)")
+            // No `default:` — `NestedItem` has exactly four cases (`.none`,
+            // `.value`, `.array`, `.dictionary`), all handled above; the
+            // compiler treats this switch as exhaustive. A new enum case
+            // would surface as a compile error here, not as a `fatalError`
+            // at runtime.
             }
         }
 
@@ -1406,9 +1409,13 @@ public enum ModuleValue {
 
     public var wrappedValue: T {
         get {
-            // note: this gives a warning but it does in fact do something
-            // in the case where this is e.g. ParameterInfo<MLXArray?>
-            if let value = value as? T {
+            // Conditional cast `value as? T` IS meaningful when `T` is itself
+            // an optional (e.g. `ParameterInfo<MLXArray?>` — `value` is
+            // `MLXArray?` and `T` is `MLXArray?`, so this exercises the
+            // `Optional<MLXArray> → Optional<MLXArray>` cast successfully).
+            // Routing through `Any` defeats the compiler's spurious "T? → T
+            // does nothing" warning while preserving the runtime behaviour.
+            if let value = (value as Any) as? T {
                 return value
             } else {
                 return value!
@@ -1519,9 +1526,12 @@ private protocol TypeErasedSetterProvider {
 
     public var wrappedValue: T {
         get {
-            // note: this gives a warning but it does in fact do something
-            // in the case where this is e.g. ModuleInfo<Linear?>
-            if let module = module as? T {
+            // Same `as Any` indirection as `ParameterInfo.wrappedValue` —
+            // the conditional cast IS meaningful when `T` is optional (e.g.
+            // `ModuleInfo<Linear?>`), and routing through `Any` defeats
+            // the compiler's spurious "T? → T does nothing" warning while
+            // preserving the runtime behaviour.
+            if let module = (module as Any) as? T {
                 return module
             } else {
                 return module!

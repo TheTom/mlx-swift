@@ -27,7 +27,7 @@ public final class MLXArray {
     ///
     /// This is used for interop with C/C++ code that creates MLX arrays outside of Swift.
     public static func fromCppArray(_ ptr: UnsafeMutableRawPointer) -> MLXArray {
-        var handle = mlx_array(ctx: ptr)
+        let handle = mlx_array(ctx: ptr)
         return MLXArray(handle)
     }
 
@@ -41,7 +41,16 @@ public final class MLXArray {
     /// mlx_func((freqs ?? .mlxNone).ctx)
     /// ```
     // PERF: static let avoids creating a new MLXArray on every access (~150 calls per forward pass)
-    public static let mlxNone: MLXArray = .init(mlx_array_new())
+    //
+    // `nonisolated(unsafe)` (Swift 6): `MLXArray` is a class-backed
+    // reference type and not `Sendable`, but `mlxNone` represents the
+    // C-API null-sentinel — it's never mutated past its `mlx_array_new()`
+    // initialisation, and the only access is reading its `.ctx` pointer to
+    // pass to MLX C functions that treat null as "no value". Sharing it
+    // across threads is safe because there's nothing to race on; the
+    // unchecked annotation acknowledges the inability to express that
+    // immutability in the type system.
+    public nonisolated(unsafe) static let mlxNone: MLXArray = .init(mlx_array_new())
 
     deinit {
         mlx_array_free(ctx)

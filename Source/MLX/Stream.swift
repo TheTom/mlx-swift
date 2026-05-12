@@ -36,7 +36,16 @@ public struct StreamOrDevice: Sendable, CustomStringConvertible, Equatable {
     /// sets it otherwise.
     // PERF: Cache the default to avoid @TaskLocal lookup on every op (~880/prefill).
     // The TaskLocal path added ~15ms overhead per forward pass.
-    private static var _cachedDefault: StreamOrDevice?
+    //
+    // `nonisolated(unsafe)` (Swift 6): a multi-threaded read+populate of
+    // this cache can race but the race is benign — two threads independently
+    // resolving the default both arrive at the same value (`Stream.defaultStream
+    // ?? Device.defaultStream()` is deterministic for the same task-local +
+    // device state). `StreamOrDevice` is a `Sendable` struct wrapping a
+    // ref-counted stream pointer; the worst-case race writes the same value
+    // twice. Adding a lock would re-introduce the very overhead this cache
+    // was added to avoid (~15ms per forward pass).
+    private nonisolated(unsafe) static var _cachedDefault: StreamOrDevice?
 
     public static var `default`: StreamOrDevice {
         if let cached = _cachedDefault {
