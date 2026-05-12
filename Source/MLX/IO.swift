@@ -214,7 +214,18 @@ private func new_mlx_io_vtable_dataIO() -> mlx_io_vtable {
         case SEEK_CUR:
             state.offset += Int(offset)
         case SEEK_END:
-            state.offset = state.offset - Int(offset)
+            // C `lseek(fd, off, SEEK_END)` sets offset to (file_size + off).
+            // `off` is typically 0 (go to end — used by safetensors loader
+            // to discover the file size via tell() afterwards) or negative
+            // (seek N bytes before end). Previously this read
+            //   state.offset - Int(offset)
+            // which is current-position-minus-arg — meaningless. With an
+            // 8-byte buffer of in-memory data the loader's
+            //   seek(0, end); tell();
+            // returned the post-header cursor (8) instead of the true
+            // file size, producing "JSON header is N bytes long but the
+            // file is only 8 bytes" on every Data round-trip.
+            state.offset = state.data.count + Int(offset)
         default:
             break
         }
