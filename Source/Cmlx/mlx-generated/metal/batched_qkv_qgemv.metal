@@ -29,7 +29,7 @@ inline float qdot_4bit(
   float accum = 0;
   for (int i = 0; i < (values_per_thread / 4); i++) {
     accum +=
-        (x_thread[4 * i]     * float(ws[i] & 0x000f) +
+        (x_thread[4 * i] * float(ws[i] & 0x000f) +
          x_thread[4 * i + 1] * float(ws[i] & 0x00f0) +
          x_thread[4 * i + 2] * float(ws[i] & 0x0f00) +
          x_thread[4 * i + 3] * float(ws[i] & 0xf000));
@@ -49,10 +49,14 @@ inline float qdot_4bit_safe(
   float accum = 0;
   for (int i = 0; i < (values_per_thread / 4); i++) {
     int base = 4 * i;
-    if (base < remaining) accum += x_thread[base] * float(ws[i] & 0x000f);
-    if (base + 1 < remaining) accum += x_thread[base + 1] * float(ws[i] & 0x00f0);
-    if (base + 2 < remaining) accum += x_thread[base + 2] * float(ws[i] & 0x0f00);
-    if (base + 3 < remaining) accum += x_thread[base + 3] * float(ws[i] & 0xf000);
+    if (base < remaining)
+      accum += x_thread[base] * float(ws[i] & 0x000f);
+    if (base + 1 < remaining)
+      accum += x_thread[base + 1] * float(ws[i] & 0x00f0);
+    if (base + 2 < remaining)
+      accum += x_thread[base + 2] * float(ws[i] & 0x0f00);
+    if (base + 3 < remaining)
+      accum += x_thread[base + 3] * float(ws[i] & 0xf000);
   }
   return scale * accum + sum * bias;
 }
@@ -85,13 +89,12 @@ template <typename T, int group_size>
     uint3 tid [[threadgroup_position_in_grid]],
     uint simd_gid [[simdgroup_index_in_threadgroup]],
     uint simd_lid [[thread_index_in_simdgroup]]) {
-
   constexpr int SIMD_SIZE = 32;
   constexpr int num_simdgroups = 2;
   constexpr int results_per_simdgroup = 4;
   constexpr int pack_factor = 8;
   constexpr int values_per_thread = pack_factor;
-  constexpr int block_size = values_per_thread * SIMD_SIZE;  // 256
+  constexpr int block_size = values_per_thread * SIMD_SIZE; // 256
   constexpr int bytes_per_pack = 4;
   constexpr int scale_step_per_thread = group_size / values_per_thread;
 
@@ -104,23 +107,33 @@ template <typename T, int group_size>
 
   switch (tid.z) {
     case 0:
-      ws = (const device uint8_t*)w_q; sc = scales_q; bi = biases_q;
-      out = y; out_vec_size = out_vec_size_q;
+      ws = (const device uint8_t*)w_q;
+      sc = scales_q;
+      bi = biases_q;
+      out = y;
+      out_vec_size = out_vec_size_q;
       break;
     case 1:
-      ws = (const device uint8_t*)w_k; sc = scales_k; bi = biases_k;
-      out = y + out_vec_size_q; out_vec_size = out_vec_size_k;
+      ws = (const device uint8_t*)w_k;
+      sc = scales_k;
+      bi = biases_k;
+      out = y + out_vec_size_q;
+      out_vec_size = out_vec_size_k;
       break;
     default:
-      ws = (const device uint8_t*)w_v; sc = scales_v; bi = biases_v;
-      out = y + out_vec_size_q + out_vec_size_k; out_vec_size = out_vec_size_v;
+      ws = (const device uint8_t*)w_v;
+      sc = scales_v;
+      bi = biases_v;
+      out = y + out_vec_size_q + out_vec_size_k;
+      out_vec_size = out_vec_size_v;
       break;
   }
 
   const int out_row = tid.y * (num_simdgroups * results_per_simdgroup) +
       simd_gid * results_per_simdgroup;
 
-  if (out_row >= out_vec_size) return;
+  if (out_row >= out_vec_size)
+    return;
 
   // Load x into shared memory (each z-slice loads independently)
   threadgroup T shared_x[4096];
@@ -148,9 +161,14 @@ template <typename T, int group_size>
   int k = 0;
 
   constexpr float qdot_prescale[8] = {
-      1.0f, 1.0f/16.0f, 1.0f/256.0f, 1.0f/4096.0f,
-      1.0f, 1.0f/16.0f, 1.0f/256.0f, 1.0f/4096.0f
-  };
+      1.0f,
+      1.0f / 16.0f,
+      1.0f / 256.0f,
+      1.0f / 4096.0f,
+      1.0f,
+      1.0f / 16.0f,
+      1.0f / 256.0f,
+      1.0f / 4096.0f};
 
   for (; k < in_vec_size - block_size; k += block_size) {
     float sum = 0;
@@ -176,7 +194,8 @@ template <typename T, int group_size>
   // Handle remaining elements
   const int remaining = clamp(
       int(in_vec_size) - k - int(simd_lid * values_per_thread),
-      0, values_per_thread);
+      0,
+      values_per_thread);
   if (remaining > 0) {
     float sum = 0;
     for (int i = 0; i < values_per_thread; i++) {
@@ -193,8 +212,8 @@ template <typename T, int group_size>
       auto wl = (const device uint8_t*)(ws + row * in_vec_size_w);
       float s = float(sc[row * in_vec_size_g]);
       float b = float(bi[row * in_vec_size_g]);
-      result[row] += qdot_4bit_safe<values_per_thread>(
-          wl, x_thread, s, b, sum, remaining);
+      result[row] +=
+          qdot_4bit_safe<values_per_thread>(wl, x_thread, s, b, sum, remaining);
     }
   }
 
@@ -210,18 +229,30 @@ template <typename T, int group_size>
 // ============================================================================
 // Instantiation
 // ============================================================================
-#define instantiate_batched_qkv_qgemv(type, tname, gs) \
-  template [[host_name("batched_qkv_qgemv_" #tname "_gs" #gs)]] \
-  [[kernel]] void batched_qkv_qgemv<type, gs>( \
-    const device type*, \
-    const device uint32_t*, const device type*, const device type*, \
-    const device uint32_t*, const device type*, const device type*, \
-    const device uint32_t*, const device type*, const device type*, \
-    device type*, \
-    constant int&, constant int&, constant int&, constant int&, \
-    uint3, uint, uint);
+#define instantiate_batched_qkv_qgemv(type, tname, gs)                     \
+  template                                                                 \
+      [[host_name("batched_qkv_qgemv_" #tname "_gs" #gs)]] [[kernel]] void \
+      batched_qkv_qgemv<type, gs>(                                         \
+          const device type*,                                              \
+          const device uint32_t*,                                          \
+          const device type*,                                              \
+          const device type*,                                              \
+          const device uint32_t*,                                          \
+          const device type*,                                              \
+          const device type*,                                              \
+          const device uint32_t*,                                          \
+          const device type*,                                              \
+          const device type*,                                              \
+          device type*,                                                    \
+          constant int&,                                                   \
+          constant int&,                                                   \
+          constant int&,                                                   \
+          constant int&,                                                   \
+          uint3,                                                           \
+          uint,                                                            \
+          uint);
 
 instantiate_batched_qkv_qgemv(half, float16, 64)
-instantiate_batched_qkv_qgemv(bfloat16_t, bfloat16, 64)
-instantiate_batched_qkv_qgemv(half, float16, 128)
-instantiate_batched_qkv_qgemv(bfloat16_t, bfloat16, 128)
+    instantiate_batched_qkv_qgemv(bfloat16_t, bfloat16, 64)
+        instantiate_batched_qkv_qgemv(half, float16, 128)
+            instantiate_batched_qkv_qgemv(bfloat16_t, bfloat16, 128)
