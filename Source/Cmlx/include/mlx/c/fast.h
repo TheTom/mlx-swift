@@ -249,7 +249,7 @@ int mlx_fast_turbo_bulk_dequant_rotated(mlx_array* res, const mlx_array packed, 
 int mlx_fast_gated_delta_step(mlx_vector_array* res, const mlx_array q, const mlx_array k, const mlx_array v, const mlx_array g, const mlx_array beta, const mlx_array state, const mlx_array mask, int T, bool fused, int Dk, int Dv, int Hk, int Hv, const mlx_stream s);
 int mlx_fast_gated_delta_step_fused(mlx_vector_array* res, const mlx_array q_raw, const mlx_array k_raw, const mlx_array v, const mlx_array a, const mlx_array b_input, const mlx_array a_log, const mlx_array dt_bias, const mlx_array state, const mlx_array mask, int T, int Dk, int Dv, int Hk, int Hv, const mlx_stream s);
 int mlx_fast_gated_delta_step_record(mlx_vector_array* res, const mlx_array q, const mlx_array k, const mlx_array v, const mlx_array g, const mlx_array beta, const mlx_array state, const mlx_array mask, int T, int Dk, int Dv, int Hk, int Hv, const mlx_stream s);
-int mlx_fast_state_replay(mlx_vector_array* res, const mlx_array delta_log, const mlx_array k_tape, const mlx_array g_tape, const mlx_array state, const mlx_array mask, int T_log, int accepted, int Dk, int Dv, int Hk, int Hv, const mlx_stream s);
+int mlx_fast_state_replay(mlx_vector_array* res, const mlx_array delta_log, const mlx_array k_log, const mlx_array g_log, const mlx_array state, const mlx_array mask, int T_log, int accepted, int Dk, int Dv, int Hk, int Hv, const mlx_stream s);
 // SSM
 int mlx_fast_ssm_step(mlx_vector_array* res, const mlx_array X, const mlx_array A_log, const mlx_array B, const mlx_array C, const mlx_array D, const mlx_array dt, const mlx_array state, int Dh, int Ds, int H, int G, const mlx_stream s);
 
