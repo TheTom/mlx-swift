@@ -143,6 +143,27 @@ pre-generating the source when updating the `mlx` version.
     - this updates headers in Source/Cmlx/include
     - this updates headers in Source/Cmlx/include-framework
     - this generates various files in Source/Cmlx/mlx-generated
+    - **fork-aware**: preserves the ekryski/mlx fork's metal kernels.
+      The script auto-detects two classes of fork kernels and handles
+      both before/after the destructive `rm -rf mlx-generated/metal`:
+        - **Class A** — fork kernels that live in the submodule's
+          `mlx/backend/metal/kernels/` directory but aren't in
+          `fix-metal-includes.sh::KERNEL_LIST` (e.g. `turbo_quant`,
+          `gated_delta`, `ssm`, `rms_norm_qgemv`, `rms_norm_residual`,
+          `rms_norm_rope`, `fused_gate_activation`, `turbo_flash`,
+          `gated_delta_replay`). Re-copied from the submodule with
+          include directives rewritten to the short-path form.
+        - **Class B** — fork kernels that live ONLY in
+          `mlx-generated/metal/`, with no submodule counterpart (e.g.
+          `warp_moe_gate_up`, `warp_moe_down`, `batched_qkv_qgemv`).
+          Backed up before the destructive rm and restored after.
+      Auto-detection is gated on "was already in the mirror" — i.e.
+      arbitrary new submodule kernels (like `fence.metal` which
+      requires Metal 3.2 and isn't built by our `-std=metal3.1`
+      metallib) are NOT auto-promoted into the mirror. Adding a new
+      fork kernel still requires deliberate action (drop the .metal
+      into the canonical mlx tree or the mirror, register it in the
+      metallib build, run `./tools/update-mlx.sh` to wire it in).
 
 4. Fix any build issues with SwiftPM build (opening Package.swift)
 5. Fix any build issues with xcodeproj build (opening xcode/MLX.codeproj), see also [README.xcodeproj.md]
