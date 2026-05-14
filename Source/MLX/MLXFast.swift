@@ -894,4 +894,97 @@ extension MLXFast {
             Int32(Dh), Int32(Ds), Int32(H), Int32(G), stream.ctx)
         return mlx_vector_array_values(result)
     }
+
+    /// Spec 040: Mamba sequential step with per-step delta-log capture for
+    /// n-gram speculative-decode state replay.
+    ///
+    /// Returns `[y, state_out, dA_log, dBx_log]` (4 arrays). Drop-in for the
+    /// L>1 Mamba forward path during a `cache.isRecording` window — the delta
+    /// log is consumed by `ssmReplay` on rollback.
+    ///
+    /// `mask` is an optional `[B, T]` bool array; masked timesteps fold
+    /// `dA=1, dBx=0` so any rollback past a masked t is identity-preserving.
+    public static func ssmStepRecord(
+        x: MLXArray, ALog: MLXArray, B: MLXArray, C: MLXArray,
+        D: MLXArray, dt: MLXArray, state: MLXArray,
+        mask: MLXArray? = nil,
+        stream: StreamOrDevice = .default
+    ) -> [MLXArray] {
+        var result = mlx_vector_array_new()
+        defer { mlx_vector_array_free(result) }
+        mlx_fast_ssm_step_record(
+            &result,
+            x.ctx, ALog.ctx, B.ctx, C.ctx, D.ctx, dt.ctx, state.ctx,
+            (mask ?? .mlxNone).ctx,
+            stream.ctx)
+        return mlx_vector_array_values(result)
+    }
+
+    /// Spec 040: rollback step — re-folds the first `acceptedPrefix` entries
+    /// of a delta log produced by `ssmStepRecord` onto a recurrent state
+    /// snapshot. Returns `state_after_k` of the same shape as `stateSnapshot`.
+    public static func ssmReplay(
+        stateSnapshot: MLXArray,
+        dALog: MLXArray,
+        dBxLog: MLXArray,
+        acceptedPrefix: Int,
+        mask: MLXArray? = nil,
+        stream: StreamOrDevice = .default
+    ) -> MLXArray {
+        var result = mlx_array_new()
+        mlx_fast_ssm_replay(
+            &result,
+            stateSnapshot.ctx, dALog.ctx, dBxLog.ctx,
+            Int32(acceptedPrefix),
+            (mask ?? .mlxNone).ctx,
+            stream.ctx)
+        return MLXArray(result)
+    }
+
+    /// Spec 041 phase 1.1: fused flash quantized SDPA.
+    ///
+    /// Same shape and semantics as `scaledDotProductAttention(... sinks:)` but
+    /// consumes affine-quantized K/V triples and dequantises inline inside the
+    /// tiled online-softmax loop. Avoids materialising the
+    /// `[B, H, T_q, T_kv]` score matrix that the discrete
+    /// `quantizedMM → softmax → quantizedMM` path produces.
+    ///
+    /// - Parameters:
+    ///   - queries: `[B, n_q_heads, T_q, D]`
+    ///   - kPacked / kScales / kBiases: affine quantization triple
+    ///     `[B, n_kv_heads, T_kv, ...]`. K head dim derived from queries.
+    ///   - vPacked / vScales / vBiases: same shape rule. V dim may differ
+    ///     from K dim (rare; defaults equal).
+    ///   - bits / groupSize: affine codec params (currently `{2,3,4,6,8}` ×
+    ///     `64` instantiated).
+    ///   - mask: optional bool or float mask. `.causal` mode passes
+    ///     `mask: nil` and `causal: true`.
+    ///   - sinks: optional `[n_q_heads]` per-Q-head sink logits (GPT-OSS).
+    public static func flashQuantizedSDPA(
+        queries: MLXArray,
+        kPacked: MLXArray, kScales: MLXArray, kBiases: MLXArray,
+        vPacked: MLXArray, vScales: MLXArray, vBiases: MLXArray,
+        scale: Float,
+        bits: Int,
+        groupSize: Int,
+        causal: Bool = false,
+        mask: MLXArray? = nil,
+        sinks: MLXArray? = nil,
+        stream: StreamOrDevice = .default
+    ) -> MLXArray {
+        var result = mlx_array_new()
+        let maskMode = causal ? "causal" : ""
+        mlx_fast_flash_quantized_sdpa(
+            &result,
+            queries.ctx,
+            kPacked.ctx, kScales.ctx, kBiases.ctx,
+            vPacked.ctx, vScales.ctx, vBiases.ctx,
+            scale,
+            Int32(bits), Int32(groupSize),
+            maskMode,
+            (mask ?? .mlxNone).ctx,
+            (sinks ?? .mlxNone).ctx,
+            stream.ctx)
+        return MLXArray(result)
+    }
 }
