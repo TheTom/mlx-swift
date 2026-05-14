@@ -1,7 +1,7 @@
 [submodule "submodules/mlx"]
 	path = Source/Cmlx/mlx
-	url = https://github.com/ekryski/mlx
-	branch = alpha
+	url = https://github.com/TheTom/mlx
+	branch = vllm-swift-stable
 [submodule "submodules/mlx-c"]
 	path = Source/Cmlx/mlx-c
 	url = https://github.com/ekryski/mlx-c
