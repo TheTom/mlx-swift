@@ -960,6 +960,38 @@ extension MLXFast {
     ///   - mask: optional bool or float mask. `.causal` mode passes
     ///     `mask: nil` and `causal: true`.
     ///   - sinks: optional `[n_q_heads]` per-Q-head sink logits (GPT-OSS).
+    /// TurboQuant fused single-pass SDPA with sinks — spec 041 phase 1.1
+    /// follow-up. MSE-codec equivalent of `flashQuantizedSDPA(...)`. Single
+    /// kernel dispatch, online softmax inline with sinks fold — no
+    /// pass1/pass2 split (sidesteps the graph-fusion incoherence that the
+    /// previous β-with-sinks drafts hit on GPT-OSS-20B).
+    ///
+    /// Output is in rotated V space; caller applies the inverse codec
+    /// rotation Π_v^T afterward.
+    public static func turboFlashSDPAv(
+        queries: MLXArray,
+        kPacked: MLXArray, kNorms: MLXArray, kCodebook: MLXArray,
+        vPacked: MLXArray, vNorms: MLXArray, vCodebook: MLXArray,
+        keyBits: Int, valueBits: Int, dim: Int, repeatCount: Int,
+        sinks: MLXArray? = nil,
+        causal: Bool = false,
+        windowSize: Int = -1,
+        stream: StreamOrDevice = .default
+    ) -> MLXArray {
+        var result = mlx_array_new()
+        mlx_fast_turbo_flash_sdpa_v(
+            &result,
+            queries.ctx,
+            kPacked.ctx, kNorms.ctx, kCodebook.ctx,
+            vPacked.ctx, vNorms.ctx, vCodebook.ctx,
+            Int32(keyBits), Int32(valueBits), Int32(dim), Int32(repeatCount),
+            (sinks ?? .mlxNone).ctx,
+            causal,
+            Int32(windowSize),
+            stream.ctx)
+        return MLXArray(result)
+    }
+
     public static func flashQuantizedSDPA(
         queries: MLXArray,
         kPacked: MLXArray, kScales: MLXArray, kBiases: MLXArray,
@@ -968,12 +1000,14 @@ extension MLXFast {
         bits: Int,
         groupSize: Int,
         causal: Bool = false,
+        windowSize: Int = -1,
         mask: MLXArray? = nil,
         sinks: MLXArray? = nil,
         stream: StreamOrDevice = .default
     ) -> MLXArray {
         var result = mlx_array_new()
-        let maskMode = causal ? "causal" : ""
+        // Sliding window requires causal (matches the C++ entry-point check).
+        let maskMode = (causal || windowSize > 0) ? "causal" : ""
         mlx_fast_flash_quantized_sdpa(
             &result,
             queries.ctx,
@@ -984,6 +1018,7 @@ extension MLXFast {
             maskMode,
             (mask ?? .mlxNone).ctx,
             (sinks ?? .mlxNone).ctx,
+            Int32(windowSize),
             stream.ctx)
         return MLXArray(result)
     }

@@ -116,4 +116,54 @@ class MLXFastFlashQuantizedSDPATests: XCTestCase {
     func testFlashQuantizedSDPABits8() {
         runMatchesDequant(Tq: 1, Tkv: 256, bits: 8)
     }
+
+    /// Build a `[1, 1, qL, kL]` additive mask that combines causal +
+    /// sliding-window: keys are allowed iff `q_idx >= k_idx` AND
+    /// `k_idx > q_idx - window`. Mirrors the predicate used inside the C++
+    /// `scaled_dot_product_attention` sliding-window fallback (see fast.cpp,
+    /// the `within_window` block).
+    private func causalSlidingMask(
+        qL: Int, kL: Int, window: Int, dtype: DType
+    ) -> MLXArray {
+        let offset = kL - qL
+        let q = MLXArray(Int32(offset) ..< Int32(offset + qL))[0..., .newAxis]
+        let k = MLXArray(Int32(0) ..< Int32(kL))[.newAxis]
+        var ok = q .>= k
+        ok = ok & (k .> (q - MLXArray(Int32(window))))
+        let neg: Float = -Float.greatestFiniteMagnitude
+        var mask = MLX.where(ok, MLXArray(Float(0)), MLXArray(neg))
+        mask = mask.asType(dtype).expandedDimensions(axis: 0).expandedDimensions(axis: 0)
+        return mask
+    }
+
+    /// Spec 041 phase 1.2: `windowSize > 0` plumbing on
+    /// `flashQuantizedSDPA`. Reference path uses a materialized causal +
+    /// sliding-window mask through the unquantized SDPA — same predicate the
+    /// fused kernel applies internally.
+    func testFlashQuantizedSDPAWithSlidingWindow() {
+        let B = 1, nQ = 4, nKV = 4
+        let Tq = 8, Tkv = 8, headDim = 128, window = 4
+        let bits = 4, groupSize = 64
+        let (q, kP, kS, kB, vP, vS, vB, kDQ, vDQ) = makeQKV(
+            B: B, nQ: nQ, nKV: nKV, Tq: Tq, Tkv: Tkv, headDim: headDim,
+            bits: bits, groupSize: groupSize)
+        let scale = 1.0 / sqrt(Float(headDim))
+
+        let outFlash = MLXFast.flashQuantizedSDPA(
+            queries: q,
+            kPacked: kP, kScales: kS, kBiases: kB,
+            vPacked: vP, vScales: vS, vBiases: vB,
+            scale: scale, bits: bits, groupSize: groupSize,
+            causal: true, windowSize: window)
+
+        let mask = causalSlidingMask(qL: Tq, kL: Tkv, window: window, dtype: q.dtype)
+        let outRef = MLXFast.scaledDotProductAttention(
+            queries: q, keys: kDQ, values: vDQ, scale: scale, mask: .array(mask))
+
+        eval(outFlash, outRef)
+        XCTAssertEqual(outFlash.shape, outRef.shape)
+        XCTAssertTrue(
+            allClose(outFlash, outRef, rtol: 1e-2, atol: 1e-3).item(Bool.self),
+            "flashQuantizedSDPA(windowSize=\(window)) diverges from causal+sliding mask reference")
+    }
 }
