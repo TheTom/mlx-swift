@@ -78,7 +78,8 @@ template <typename T, int D, int V, int Bits, int GroupSize>
     const device T* sinks [[buffer(24), function_constant(has_sinks_fq)]],
     const constant int& num_q_heads
     [[buffer(25), function_constant(has_sinks_fq)]],
-    const constant int& window_size [[buffer(26), function_constant(do_sliding_fq)]],
+    const constant int& window_size
+    [[buffer(26), function_constant(do_sliding_fq)]],
     uint3 tid [[threadgroup_position_in_grid]],
     uint3 tpg [[threadgroups_per_grid]],
     uint simd_gid [[simdgroup_index_in_threadgroup]],
@@ -140,13 +141,13 @@ template <typename T, int D, int V, int Bits, int GroupSize>
   const device T* v_scales_head = v_scales + kv_head_idx * v_head_stride_scale;
   const device T* v_biases_head = v_biases + kv_head_idx * v_head_stride_scale;
 
-  // Pre-load query (apply scale) — vec-style: read `qk_per_thread` dims into
-  // registers via a tight loop the compiler will vectorise to wide loads.
-  #pragma clang loop unroll(full)
+// Pre-load query (apply scale) — vec-style: read `qk_per_thread` dims into
+// registers via a tight loop the compiler will vectorise to wide loads.
+#pragma clang loop unroll(full)
   for (int i = 0; i < qk_per_thread; i++) {
     q[i] = static_cast<U>(scale) * static_cast<U>(queries_thread[i]);
   }
-  #pragma clang loop unroll(full)
+#pragma clang loop unroll(full)
   for (int i = 0; i < v_per_thread; i++) {
     o[i] = 0;
   }
@@ -203,7 +204,7 @@ template <typename T, int D, int V, int Bits, int GroupSize>
         k_bias_local = static_cast<U>(k_biases_t[group_idx_thread]);
       }
 
-      #pragma clang loop unroll(full)
+#pragma clang loop unroll(full)
       for (int j = 0; j < qk_per_thread; j++) {
         int d = simd_lid * qk_per_thread + j;
         int word_idx = d / pack_factor;
@@ -220,7 +221,7 @@ template <typename T, int D, int V, int Bits, int GroupSize>
 
       // Compute the i-th score across qk_per_thread dims, then simd_sum.
       U score = 0;
-      #pragma clang loop unroll(full)
+#pragma clang loop unroll(full)
       for (int j = 0; j < qk_per_thread; j++) {
         score += q[j] * k[j];
       }
@@ -255,7 +256,7 @@ template <typename T, int D, int V, int Bits, int GroupSize>
           v_bias_local = static_cast<U>(v_biases_t[group_idx_thread]);
         }
 
-        #pragma clang loop unroll(full)
+#pragma clang loop unroll(full)
         for (int j = 0; j < v_per_thread; j++) {
           int d = simd_lid * v_per_thread + j;
           int word_idx = d / pack_factor;
@@ -270,14 +271,14 @@ template <typename T, int D, int V, int Bits, int GroupSize>
           }
         }
 
-        // Output accumulator update.
-        #pragma clang loop unroll(full)
+// Output accumulator update.
+#pragma clang loop unroll(full)
         for (int j = 0; j < v_per_thread; j++) {
           o[j] = o[j] * factor + exp_score * v[j];
         }
       } else {
-        // Zero contribution — still apply the factor to existing o[].
-        #pragma clang loop unroll(full)
+// Zero contribution — still apply the factor to existing o[].
+#pragma clang loop unroll(full)
         for (int j = 0; j < v_per_thread; j++) {
           o[j] = o[j] * factor;
         }

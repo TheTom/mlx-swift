@@ -253,6 +253,72 @@ int mlx_fast_state_replay(mlx_vector_array* res, const mlx_array delta_log, cons
 // SSM
 int mlx_fast_ssm_step(mlx_vector_array* res, const mlx_array X, const mlx_array A_log, const mlx_array B, const mlx_array C, const mlx_array D, const mlx_array dt, const mlx_array state, int Dh, int Ds, int H, int G, const mlx_stream s);
 
+// Spec 041 phase 1.1: flash quantized SDPA. `mask_arr` / `sinks` are optional
+// (pass `mlx_array{nullptr}` to skip). `window_size > 0` requires
+// `mask_mode == "causal"` and applies a sliding-window mask
+// (`i > q_pos - window_size`) on top of the causal upper bound.
+int mlx_fast_flash_quantized_sdpa(
+    mlx_array* res,
+    const mlx_array queries,
+    const mlx_array k_packed,
+    const mlx_array k_scales,
+    const mlx_array k_biases,
+    const mlx_array v_packed,
+    const mlx_array v_scales,
+    const mlx_array v_biases,
+    float scale,
+    int bits,
+    int group_size,
+    const char* mask_mode,
+    const mlx_array mask_arr,
+    const mlx_array sinks,
+    int window_size,
+    const mlx_stream s);
+
+// Spec 041 phase 1.1 follow-up: TurboQuant fused single-pass SDPA with sinks.
+// `sinks` is optional (`mlx_array{nullptr}` to omit). `window_size > 0`
+// requires `do_causal == true`.
+int mlx_fast_turbo_flash_sdpa_v(
+    mlx_array* res,
+    const mlx_array queries,
+    const mlx_array k_packed,
+    const mlx_array k_norms,
+    const mlx_array k_codebook,
+    const mlx_array v_packed,
+    const mlx_array v_norms,
+    const mlx_array v_codebook,
+    int key_bits,
+    int value_bits,
+    int dim,
+    int repeat_count,
+    const mlx_array sinks,
+    bool do_causal,
+    int window_size,
+    const mlx_stream s);
+
+// Spec 040: Mamba state-replay primitives. `mask` is optional.
+// `ssm_step_record` returns `{y, state_out, dA_log, dBx_log}` in the vector.
+int mlx_fast_ssm_step_record(
+    mlx_vector_array* res,
+    const mlx_array x,
+    const mlx_array A_log,
+    const mlx_array B,
+    const mlx_array C,
+    const mlx_array D,
+    const mlx_array dt,
+    const mlx_array state,
+    const mlx_array mask,
+    const mlx_stream s);
+
+int mlx_fast_ssm_replay(
+    mlx_array* res,
+    const mlx_array state_snapshot,
+    const mlx_array dA_log,
+    const mlx_array dBx_log,
+    int accepted_prefix,
+    const mlx_array mask,
+    const mlx_stream s);
+
 // Fused RMS norm + RoPE
 int mlx_fast_rms_norm_rope(
     mlx_array* res,

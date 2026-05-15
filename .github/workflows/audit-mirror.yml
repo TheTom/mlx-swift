@@ -1,0 +1,55 @@
+name: Mirror drift audit
+
+# Verifies that `Source/Cmlx/mlx-generated/metal/` (the SPM-compatible
+# pre-baked snapshot of the mlx Metal kernel sources) is in sync with the
+# canonical sources in the mlx submodule at
+# `Source/Cmlx/mlx/mlx/backend/metal/kernels/`.
+#
+# Why this gate exists:
+#   SwiftPM can't compile `.metal` files, so we ship a hand-maintained
+#   mirror with include paths rewritten to the short form. Downstream
+#   consumers (mlx-swift-lm) build their `mlx.metallib` from that mirror,
+#   not from the submodule directly. When the submodule's kernel body
+#   changes (bug fix, perf improvement) but `tools/update-mlx.sh` isn't
+#   re-run, the metallib silently compiles the stale mirror — function
+#   signatures stay compatible, only numerics diverge at runtime. This is
+#   the failure pattern that broke 3-bit turbo flash SDPA on
+#   ekryski/mlx-swift-lm PR #215.
+#
+# Cost-side rationale: pure bash + diff, no compile or Metal toolchain
+# needed. Runs on ubuntu-latest in seconds — independent of the macOS
+# build job in `alpha-ci.yml`. Splitting into its own workflow gives:
+#   - Fast PR feedback (~10s instead of waiting for the 9-min macOS build)
+#   - Distinct failure status in the PR UI (drift ≠ build failure)
+#   - Independent required-check granularity for branch protection rules
+
+on:
+  push:
+    branches: [alpha]
+  pull_request:
+    branches: [alpha]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-mirror-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/alpha' }}
+
+jobs:
+  audit:
+    if: github.repository_owner == 'ekryski'
+    name: Audit mlx-generated mirror vs submodule
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout (with mlx submodule)
+        uses: actions/checkout@v6
+        with:
+          # Only need the `mlx` submodule — the audit doesn't touch mlx-c
+          # or any other submodule. `recursive` would pull mlx's nested
+          # submodules (metal-cpp, etc.) we don't need.
+          submodules: true
+
+      - name: Run mirror drift audit
+        run: ./tools/audit-mirror.sh
