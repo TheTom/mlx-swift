@@ -136,7 +136,8 @@ template <typename T, int group_size>
     return;
 
   // Load x into shared memory (each z-slice loads independently)
-  threadgroup T shared_x[4096];
+  // F-83 perf: bumped 4096 → 8192 to support Qwen2.5-14B (hidden=5120).
+  threadgroup T shared_x[8192];
   uint total_threads = num_simdgroups * SIMD_SIZE;
   uint thread_id = simd_gid * SIMD_SIZE + simd_lid;
   for (uint i = thread_id; i < uint(in_vec_size); i += total_threads) {

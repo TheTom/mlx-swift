@@ -53,7 +53,9 @@ public func all(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_all_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_all_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -176,7 +178,9 @@ public func any(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_any_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_any_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -892,7 +896,9 @@ public func logSumExp(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_logsumexp_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_logsumexp_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1016,7 +1022,9 @@ public func max(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_max_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_max_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1100,7 +1108,9 @@ public func mean(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_mean_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_mean_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1184,7 +1194,9 @@ public func min(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_min_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_min_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1382,7 +1394,9 @@ public func product(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_prod_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_prod_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1470,7 +1484,9 @@ public func reshaped(
     -> MLXArray
 {
     var result = mlx_array_new()
-    mlx_reshape(&result, array.ctx, newShape.asInt32, newShape.count, stream.ctx)
+    newShape.withInt32Buffer { buf in
+        mlx_reshape(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1490,7 +1506,9 @@ public func reshaped(_ array: MLXArray, _ newShape: Int..., stream: StreamOrDevi
     -> MLXArray
 {
     var result = mlx_array_new()
-    mlx_reshape(&result, array.ctx, newShape.asInt32, newShape.count, stream.ctx)
+    newShape.withInt32Buffer { buf in
+        mlx_reshape(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1639,7 +1657,9 @@ public func split(
     stream: StreamOrDevice = .default
 ) -> [MLXArray] {
     var vec = mlx_vector_array_new()
-    mlx_split_sections(&vec, array.ctx, indices.asInt32, indices.count, axis.int32, stream.ctx)
+    indices.withInt32Buffer { buf in
+        mlx_split_sections(&vec, array.ctx, buf.baseAddress!, buf.count, axis.int32, stream.ctx)
+    }
     defer { mlx_vector_array_free(vec) }
     return mlx_vector_array_values(vec)
 }
@@ -1682,7 +1702,9 @@ public func squeezed(
     _ array: MLXArray, axes: some Collection<Int>, stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_squeeze_axes(&result, array.ctx, axes.asInt32, axes.count, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_squeeze_axes(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1735,7 +1757,9 @@ public func sum(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_sum_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_sum_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1871,7 +1895,9 @@ public func transposed(
     -> MLXArray
 {
     var result = mlx_array_new()
-    mlx_transpose_axes(&result, array.ctx, axes.asInt32, axes.count, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_transpose_axes(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1879,7 +1905,9 @@ public func transposed(_ array: MLXArray, _ axes: Int..., stream: StreamOrDevice
     -> MLXArray
 {
     var result = mlx_array_new()
-    mlx_transpose_axes(&result, array.ctx, axes.asInt32, axes.count, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_transpose_axes(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1940,7 +1968,9 @@ public func variance(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_var_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, ddof.int32, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_var_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, ddof.int32, stream.ctx)
+    }
     return MLXArray(result)
 }
 

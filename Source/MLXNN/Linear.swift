@@ -121,6 +121,8 @@ open class Linear: Module, UnaryLayer, Quantizable {
             "(inputDimensions=\(inputDimensions), outputDimensions=\(outputDimensions), bias=\(self.bias != nil))"
     }
 
+    @inlinable
+    @inline(__always)
     open func callAsFunction(_ x: MLXArray) -> MLXArray {
         let result: MLXArray
         if let bias {

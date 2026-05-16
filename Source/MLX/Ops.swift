@@ -486,7 +486,9 @@ public func broadcast(
     -> MLXArray
 {
     var result = mlx_array_new()
-    mlx_broadcast_to(&result, array.ctx, shape.asInt32, shape.count, stream.ctx)
+    shape.withInt32Buffer { buf in
+        mlx_broadcast_to(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -1335,7 +1337,9 @@ public func expandedDimensions(
     -> MLXArray
 {
     var result = mlx_array_new()
-    mlx_expand_dims_axes(&result, array.ctx, axes.asInt32, axes.count, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_expand_dims_axes(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -2011,7 +2015,9 @@ public func median(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_median(&result, a.ctx, axes.asInt32, axes.count, keepDims, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_median(&result, a.ctx, buf.baseAddress!, buf.count, keepDims, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -2592,7 +2598,9 @@ public func roll(
 {
     var result = mlx_array_new()
     if let axes {
-        mlx_roll_axes(&result, a.ctx, [shift.int32], 1, axes.asInt32, axes.count, stream.ctx)
+        axes.withInt32Buffer { buf in
+            mlx_roll_axes(&result, a.ctx, [shift.int32], 1, buf.baseAddress!, buf.count, stream.ctx)
+        }
     } else {
         mlx_roll(&result, a.ctx, [shift.int32], 1, stream.ctx)
     }
@@ -2677,7 +2685,9 @@ public func softmax(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_softmax_axes(&result, array.ctx, axes.asInt32, axes.count, precise, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_softmax_axes(&result, array.ctx, buf.baseAddress!, buf.count, precise, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -2798,7 +2808,9 @@ public func std(
     stream: StreamOrDevice = .default
 ) -> MLXArray {
     var result = mlx_array_new()
-    mlx_std_axes(&result, array.ctx, axes.asInt32, axes.count, keepDims, ddof.int32, stream.ctx)
+    axes.withInt32Buffer { buf in
+        mlx_std_axes(&result, array.ctx, buf.baseAddress!, buf.count, keepDims, ddof.int32, stream.ctx)
+    }
     return MLXArray(result)
 }
 
@@ -3053,7 +3065,9 @@ public func tiled(
     -> MLXArray
 {
     var result = mlx_array_new()
-    mlx_tile(&result, array.ctx, repetitions.asInt32, repetitions.count, stream.ctx)
+    repetitions.withInt32Buffer { buf in
+        mlx_tile(&result, array.ctx, buf.baseAddress!, buf.count, stream.ctx)
+    }
     return MLXArray(result)
 }
 

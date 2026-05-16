@@ -93,7 +93,8 @@ template <typename T, int group_size>
   // ======================================================================
   // Phase 1: Load x into shared memory + compute RMSNorm
   // ======================================================================
-  threadgroup T shared_x[4096];
+  // F-83 perf: bumped 4096 → 8192 to support Qwen2.5-14B (hidden=5120).
+  threadgroup T shared_x[8192];
   threadgroup float shared_inv_rms[1];
 
   uint total_threads = num_simdgroups * SIMD_SIZE;

@@ -333,6 +333,8 @@ open class QuantizedLinear: Linear, Quantized {
         self.freeze(recursive: false)
     }
 
+    @inlinable
+    @inline(__always)
     open override func callAsFunction(_ x: MLXArray) -> MLXArray {
         var x = quantizedMM(
             x,

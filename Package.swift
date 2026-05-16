@@ -93,6 +93,11 @@ import PackageDescription
         .define("_METAL_"),
         .define("SWIFTPM_BUNDLE", to: "\"mlx-swift_Cmlx\""),
         .define("METAL_PATH", to: "\"default.metallib\""),
+
+        // F-83: match Python MLX's -O3 (SPM defaults to -O2 for C++ in release).
+        // CPU graph traversal + Metal buffer setup is 90%+ of eval time on decode;
+        // -O3 vs -O2 gives 2-4× on graph code per ekryski 7e4c7c3.
+        .unsafeFlags(["-O3"]),
     ]
 
     let linkerSettings: [LinkerSetting] = [
@@ -261,49 +266,105 @@ let package = Package(
             ],
             exclude: mlxSwiftExcludes,
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                // F-83: cross-module optimization for hot paths. SPM's
+                // conservative default doesn't inline across module
+                // boundaries, leaving Linear/RMSNorm/QuantizedLinear
+                // callAsFunction undevirtualized at the call site in
+                // mlx-swift-lm. CMO buys back per-op µs at scale.
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)),
             ]
         ),
         .target(
             name: "MLXRandom",
             dependencies: ["MLX"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                // F-83: cross-module optimization for hot paths. SPM's
+                // conservative default doesn't inline across module
+                // boundaries, leaving Linear/RMSNorm/QuantizedLinear
+                // callAsFunction undevirtualized at the call site in
+                // mlx-swift-lm. CMO buys back per-op µs at scale.
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)),
             ]
         ),
         .target(
             name: "MLXFast",
             dependencies: ["MLX", "Cmlx"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                // F-83: cross-module optimization for hot paths. SPM's
+                // conservative default doesn't inline across module
+                // boundaries, leaving Linear/RMSNorm/QuantizedLinear
+                // callAsFunction undevirtualized at the call site in
+                // mlx-swift-lm. CMO buys back per-op µs at scale.
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)),
             ]
         ),
         .target(
             name: "MLXNN",
             dependencies: ["MLX"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                // F-83: cross-module optimization for hot paths. SPM's
+                // conservative default doesn't inline across module
+                // boundaries, leaving Linear/RMSNorm/QuantizedLinear
+                // callAsFunction undevirtualized at the call site in
+                // mlx-swift-lm. CMO buys back per-op µs at scale.
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)),
             ]
         ),
         .target(
             name: "MLXOptimizers",
             dependencies: ["MLX", "MLXNN"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                // F-83: cross-module optimization for hot paths. SPM's
+                // conservative default doesn't inline across module
+                // boundaries, leaving Linear/RMSNorm/QuantizedLinear
+                // callAsFunction undevirtualized at the call site in
+                // mlx-swift-lm. CMO buys back per-op µs at scale.
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)),
             ]
         ),
         .target(
             name: "MLXFFT",
             dependencies: ["MLX"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                // F-83: cross-module optimization for hot paths. SPM's
+                // conservative default doesn't inline across module
+                // boundaries, leaving Linear/RMSNorm/QuantizedLinear
+                // callAsFunction undevirtualized at the call site in
+                // mlx-swift-lm. CMO buys back per-op µs at scale.
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)),
             ]
         ),
         .target(
             name: "MLXLinalg",
             dependencies: ["MLX"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
+                // F-83: cross-module optimization for hot paths. SPM's
+                // conservative default doesn't inline across module
+                // boundaries, leaving Linear/RMSNorm/QuantizedLinear
+                // callAsFunction undevirtualized at the call site in
+                // mlx-swift-lm. CMO buys back per-op µs at scale.
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)),
             ]
         ),
 

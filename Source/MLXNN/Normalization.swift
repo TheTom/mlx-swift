@@ -140,6 +140,8 @@ open class RMSNorm: Module, UnaryLayer {
         "(dimensions=\(weight.dim(0)), eps=\(self.eps))"
     }
 
+    @inlinable
+    @inline(__always)
     open func callAsFunction(_ x: MLXArray) -> MLXArray {
         MLXFast.rmsNorm(x, weight: weight, eps: eps)
     }
